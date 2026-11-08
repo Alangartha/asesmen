@@ -1,0 +1,143 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Asesmen Kelas</title>
+<style>
+:root{--bg:#f4f6fb;--c:#fff;--t:#1f2937;--m:#6b7280;--p:#2563eb;--b:#e5e7eb}
+@media(prefers-color-scheme:dark){:root{--bg:#111827;--c:#1f2937;--t:#f3f4f6;--m:#9ca3af;--p:#60a5fa;--b:#374151}}
+*{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;background:var(--bg);color:var(--t)}#app{max-width:980px;margin:auto;padding:12px}
+.card{background:var(--c);border:1px solid var(--b);border-radius:12px;padding:14px;margin:10px 0}
+label{display:block;font-size:.85rem;color:var(--m);margin:6px 0;flex:1}input,select,textarea{width:100%;padding:9px;border:1px solid var(--b);border-radius:8px;background:var(--bg);color:var(--t);font:inherit}
+textarea{min-height:60px}button{background:var(--p);color:#fff;border:0;border-radius:8px;padding:9px 14px;font:inherit;cursor:pointer;margin:4px 2px}button.g{background:transparent;color:var(--p);border:1px solid var(--p)}
+.row{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.bar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5}
+.op{display:flex;gap:8px;align-items:center;color:var(--t);font-size:1rem;padding:8px;border:1px solid var(--b);border-radius:8px;margin:5px 0}.op input,.rd{width:auto;flex:0 0 auto}
+.err{color:#dc2626}.m{color:var(--m)}table{border-collapse:collapse;width:100%;font-size:.85rem}td,th{border-bottom:1px solid var(--b);padding:6px;text-align:left;vertical-align:top}.tabs{display:flex;flex-wrap:wrap}
+</style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head><body><div id="app"></div>
+<script>
+// === ISI DENGAN KONFIGURASI FIREBASE ANDA (lihat PANDUAN.md) ===
+const CFG={
+  apiKey: "AIzaSyChiuboGtYCAXr_8dUlLbuCpQ_kDlDhXm4",
+  authDomain: "asesmen-kelas.firebaseapp.com",
+  projectId: "asesmen-kelas",
+  storageBucket: "asesmen-kelas.firebasestorage.app",
+  messagingSenderId: "636841764746",
+  appId: "1:636841764746:web:a89b55332a377d1c288a73"};
+firebase.initializeApp(CFG);const db=firebase.firestore(),au=firebase.auth();
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const shuf=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
+const blank=()=>({awal:{min:5,qs:[]},akhir:{min:10,qs:[]},refleksi:{min:5,qs:[]},cak:[],kktp:[],lv:[],thr:75,tun:61,gs:4,mv:{}});
+const route=()=>location.hash==='#guru'?(au.currentUser?panel():login()):home();
+au.onAuthStateChanged(route);window.onhashchange=route;
+
+/* ---------- SISWA (tanpa kunci jawaban; tanpa penilaian di browser) ---------- */
+function home(){app.innerHTML=`<div class=card><h1>Asesmen Kelas</h1><label>Kode sesi<input id=kode></label><label>Nama lengkap<input id=nama></label><div class=row><label>Kelas<input id=kelas placeholder="8.11"></label><label>No. absen<input id=absen type=number min=1></label></div><label>Pilih asesmen<select id=jenis><option value=awal>Asesmen Awal<option value=akhir>Asesmen Akhir<option value=refleksi>Refleksi</select></label><button id=go>Mulai</button><p id=msg class=err></p></div><p class=m><a href="#guru">Masuk sebagai guru</a></p>`;$('#go').onclick=start}
+async function start(){
+ const v=i=>$('#'+i).value.trim(),m=$('#msg');
+ const code=v('kode').toUpperCase(),nama=v('nama'),kelas=v('kelas').toUpperCase().replace(/\s/g,''),absen=+v('absen'),jenis=v('jenis');
+ if(!code||!nama||!kelas||!absen){m.textContent='Lengkapi semua isian.';return}
+ try{const ref=db.collection('sessions').doc(code),s=await ref.get();
+  if(!s.exists){m.textContent='Kode sesi tidak ditemukan.';return}
+  const A=s.data()[jenis];
+  if(!A||!A.qs||!A.qs.length){m.textContent='Soal belum tersedia.';return}
+  const id=`${jenis}_${kelas}_${absen}`;
+  if((await ref.collection('subs').doc(id).get()).exists){m.textContent='Kamu sudah mengerjakan bagian ini.';return}
+  quiz(ref,id,{nama,kelas,absen,jenis},A)}catch(e){m.textContent='Gagal: '+e.message}}
+function quiz(ref,id,who,A){
+ const qs=shuf(A.qs.map((q,n)=>({q:q.q,t:q.t,n,o:q.t==='pg'?shuf(q.opts.map((o,i)=>({o,i}))):null})));
+ const end=Date.now()+A.min*6e4;let done=false;
+ app.innerHTML=`<div class=bar><b>${esc(who.nama)}</b><b id=tm></b></div>`+qs.map((q,k)=>`<div class=card><p>${k+1}. ${esc(q.q)}</p>`+(q.t==='pg'?q.o.map(x=>`<label class=op><input type=radio name=q${q.n} value=${x.i}> ${esc(x.o)}</label>`).join(''):q.t==='skala'?`<div class=row>${[1,2,3,4].map(i=>`<label class=op><input type=radio name=q${q.n} value=${i}> ${i}</label>`).join('')}</div><small class=m>1 = sangat tidak setuju · 4 = sangat setuju</small>`:`<textarea name=q${q.n}></textarea>`)+`</div>`).join('')+`<button id=kirim>Kirim Jawaban</button>`;
+ const send=async()=>{if(done)return;done=true;clearInterval(t);
+  const ans={};A.qs.forEach((q,n)=>{const el=document.querySelector(`[name=q${n}]:checked`)||document.querySelector(`textarea[name=q${n}]`);ans[n]=el?el.value:''});
+  try{await ref.collection('subs').doc(id).set({...who,ans,ts:Date.now()});app.innerHTML='<div class=card><h2>Terima kasih!</h2><p>Jawabanmu sudah terkirim.</p></div>'}
+  catch(e){app.innerHTML='<div class=card><p class=err>Gagal mengirim (mungkin sudah pernah dikirim): '+esc(e.message)+'</p></div>'}};
+ const t=setInterval(()=>{const s=Math.max(0,Math.round((end-Date.now())/1e3));$('#tm').textContent=`${s/60|0}:${String(s%60).padStart(2,'0')}`;if(!s)send()},500);
+ $('#kirim').onclick=()=>confirm('Kirim jawaban sekarang?')&&send()}
+
+/* ---------- GURU ---------- */
+let S,code,subs=[],tab='set',jenis='awal',kelas='';
+function login(){app.innerHTML=`<div class=card><h1>Login Guru</h1><label>Email<input id=em type=email></label><label>Kata sandi<input id=pw type=password></label><button id=lg>Masuk</button><p id=msg class=err></p><a href="#">← Halaman siswa</a></div>`;
+ $('#lg').onclick=()=>au.signInWithEmailAndPassword($('#em').value,$('#pw').value).catch(()=>$('#msg').textContent='Email atau kata sandi salah.')}
+function panel(){app.innerHTML=`<div class=bar><b>Panel Guru</b><span><input id=kd placeholder="Kode sesi" value="${esc(code||'')}" style="width:9em"><button id=bk>Buka / Buat</button><button class=g id=rf>⟳</button><button class=g id=lo>Keluar</button></span></div><div id=body></div>`;
+ $('#bk').onclick=()=>load($('#kd').value.trim().toUpperCase());$('#rf').onclick=()=>code&&load(code);$('#lo').onclick=()=>au.signOut();
+ code?show():$('#body').innerHTML='<div class=card>Masukkan kode sesi (mis. ASM-8-11), lalu klik Buka / Buat.</div>'}
+async function load(c){if(!c)return;code=c;const r=db.collection('sessions').doc(c),[s,k]=await Promise.all([r.get(),r.collection('private').doc('key').get()]);
+ S={...blank(),...(s.exists?s.data():{})};const K=k.exists?k.data():{};
+ ['awal','akhir'].forEach(j=>S[j].qs.forEach((q,i)=>Object.assign(q,(K[j]||{})[i]||{})));
+ subs=(await r.collection('subs').get()).docs.map(d=>({id:d.id,...d.data()}));show()}
+function save(){const P=JSON.parse(JSON.stringify(S)),K={};
+ ['awal','akhir'].forEach(j=>{K[j]={};P[j].qs.forEach((q,i)=>{const x={};['ans','kunci','rub'].forEach(f=>{if(q[f]!==undefined){x[f]=q[f];delete q[f]}});K[j][i]=x})});
+ const r=db.collection('sessions').doc(code);return Promise.all([r.set(P),r.collection('private').doc('key').set(K)])}
+document.addEventListener('input',e=>{const p=e.target.dataset.p;if(!p)return;const k=p.split('.');let o=S;k.slice(0,-1).forEach(x=>o=o[x]);o[k[k.length-1]]=e.target.dataset.n?+e.target.value:e.target.value});
+function show(){
+ const T={set:'Pengaturan & KKTP',soal:'Soal',esai:'Nilai Esai',hasil:'Diagram',kel:'Kelompok',sis:'Siswa & Tindak Lanjut'},cl=[...new Set(subs.map(s=>s.kelas))].sort();
+ $('#body').innerHTML=`<div class=tabs>${Object.entries(T).map(([k,v])=>`<button class="${k==tab?'':'g'}" data-t=${k}>${v}</button>`).join('')}</div>${tab=='set'||tab=='soal'?'':`<select id=kl style="max-width:200px"><option value="">Semua kelas${cl.map(x=>`<option ${x==kelas?'selected':''}>${x}`).join('')}</select>`}<div id=tc></div>`;
+ document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tab=b.dataset.t;show()});
+ if($('#kl'))$('#kl').onchange=e=>{kelas=e.target.value;show()};
+ ({set:vSet,soal:vSoal,esai:vEsai,hasil:vHasil,kel:vKel,sis:vSis})[tab]();
+ const sv=$('#sv');if(sv)sv.onclick=()=>save().then(()=>alert('Tersimpan.')).catch(e=>alert(e.message))}
+function vSet(){
+ $('#tc').innerHTML=`<div class=card><h3>Impor data dari RPM</h3><p class=m>Pilih file <b>data-RPM-komdata-ponsel.json</b> untuk mengisi KKTP, kategori nilai, dan soal sekaligus. Setelah itu periksa lalu klik Simpan.</p><input type=file id=imp accept=".json"></div>
+ <div class=card><h3>Pengaturan</h3><div class=row><label>Ambang ketercapaian per TP (%)<input type=number data-n=1 data-p=thr value=${S.thr}></label><label>Nilai ketuntasan<input type=number data-n=1 data-p=tun value=${S.tun}></label><label>Anggota/kelompok<input type=number data-n=1 data-p=gs value=${S.gs}></label></div><div class=row>${['awal','akhir','refleksi'].map(j=>`<label>Waktu ${j} (menit)<input type=number data-n=1 data-p=${j}.min value=${S[j].min}></label>`).join('')}</div></div>
+ <div class=card><h3>Cakupan Asesmen Awal (diagnostik)</h3>${S.cak.map((k,i)=>`<div class=row><label style="flex:0 0 5em">Kode<input data-p=cak.${i}.id value="${esc(k.id)}"></label><label style="flex:4">Cakupan<input data-p=cak.${i}.name value="${esc(k.name)}"></label><button class=g data-dc=${i}>Hapus</button></div>`).join('')}<button class=g id=ac>+ Cakupan</button></div>
+ <div class=card><h3>Tujuan Pembelajaran (TP), KKTP & Tindak Lanjut per TP</h3>${S.kktp.map((k,i)=>`<div class=card><div class=row><label style="flex:0 0 5em">Kode<input data-p=kktp.${i}.id value="${esc(k.id)}"></label><label style="flex:4">Tujuan Pembelajaran<textarea data-p=kktp.${i}.name>${esc(k.name)}</textarea></label></div><label>KKTP (indikator tercapai)<textarea data-p=kktp.${i}.kt>${esc(k.kt)}</textarea></label><label>Tindak lanjut jika TP belum tercapai (opsional)<textarea data-p=kktp.${i}.fu>${esc(k.fu)}</textarea></label><label>Tindak lanjut pengayaan TP (opsional)<textarea data-p=kktp.${i}.fe>${esc(k.fe)}</textarea></label><button class=g data-dk=${i}>Hapus TP</button></div>`).join('')}<button class=g id=ak>+ TP</button></div>
+ <div class=card><h3>Kategori Nilai Akhir & Program Tindak Lanjut</h3>${S.lv.map((l,i)=>`<div class=card><div class=row><label style="flex:0 0 5em">Dari<input type=number data-n=1 data-p=lv.${i}.min value=${l.min}></label><label style="flex:0 0 5em">Sampai<input type=number data-n=1 data-p=lv.${i}.max value=${l.max}></label><label style="flex:4">Kategori<input data-p=lv.${i}.nama value="${esc(l.nama)}"></label></div><label>Program tindak lanjut<textarea data-p=lv.${i}.tl>${esc(l.tl)}</textarea></label><button class=g data-dl=${i}>Hapus</button></div>`).join('')}<button class=g id=al>+ Kategori</button></div><button id=sv>Simpan</button>`;
+ const del=(a,at)=>document.querySelectorAll(`[${at}]`).forEach(b=>b.onclick=()=>{a.splice(+b.getAttribute(at),1);show()});
+ del(S.cak,'data-dc');del(S.kktp,'data-dk');del(S.lv,'data-dl');
+ $('#ac').onclick=()=>{S.cak.push({id:'D'+(S.cak.length+1),name:''});show()};
+ $('#ak').onclick=()=>{S.kktp.push({id:'TP'+(S.kktp.length+1),name:'',kt:'',fu:'',fe:''});show()};
+ $('#al').onclick=()=>{S.lv.push({min:0,max:0,nama:'',tl:''});show()};
+ $('#imp').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!confirm('Impor akan MENIMPA pengaturan, KKTP, kategori, dan soal sesi ini. Lanjut?'))return;Object.assign(S,d);show();alert('Data diimpor. Periksa lalu klik Simpan.')}catch(x){alert('File tidak valid: '+x.message)}};r.readAsText(f)}}
+function vSoal(){const A=S[jenis],P=i=>`${jenis}.qs.${i}`,KL=jenis=='awal'?S.cak:S.kktp;
+ A.qs.forEach(q=>{if(q.t=='pg'){q.opts=q.opts||['','','',''];if(q.ans==null)q.ans=0}});
+ $('#tc').innerHTML=`<div class=tabs>${['awal','akhir','refleksi'].map(j=>`<button class="${j==jenis?'':'g'}" data-j=${j}>${j}</button>`).join('')}</div>`+A.qs.map((q,i)=>`<div class=card><div class=row><label style="flex:4">Soal ${i+1}<textarea data-p=${P(i)}.q>${esc(q.q)}</textarea></label><label>Jenis<select data-p=${P(i)}.t>${(jenis=='refleksi'?[['skala','Skala 1-4'],['isian','Isian']]:[['pg','Pilihan ganda'],['esai','Esai']]).map(([v,n])=>`<option value=${v} ${q.t==v?'selected':''}>${n}`).join('')}</select></label>${jenis=='refleksi'?'':`<label>${jenis=='awal'?'Cakupan':'TP'}<select data-p=${P(i)}.k><option value="">-${KL.map(k=>`<option ${k.id==q.k?'selected':''}>${esc(k.id)}`).join('')}</select></label>`}</div>`+(q.t=='pg'?[0,1,2,3].map(o=>`<div class=row><input class=rd type=radio name=r${jenis}${i} data-n=1 data-p=${P(i)}.ans value=${o} ${q.ans==o?'checked':''}><input style="flex:1" data-p=${P(i)}.opts.${o} value="${esc(q.opts[o])}" placeholder="Opsi ${'ABCD'[o]}"></div>`).join('')+'<small class=m>Pilih bulatan pada opsi yang benar (kunci jawaban, tidak terlihat siswa).</small><br>':q.t=='esai'?`<label>Kunci jawaban<textarea data-p=${P(i)}.kunci>${esc(q.kunci)}</textarea></label><label>Pedoman skor 1-4<textarea data-p=${P(i)}.rub>${esc(q.rub)}</textarea></label>`:'')+`<button class=g data-del=${i}>Hapus soal</button></div>`).join('')+`<button class=g id=aq>+ Tambah soal</button><button id=sv>Simpan</button>`;
+ document.querySelectorAll('[data-j]').forEach(b=>b.onclick=()=>{jenis=b.dataset.j;vSoal()});
+ document.querySelectorAll('select[data-p$=".t"]').forEach(s=>s.onchange=vSoal);
+ $('#aq').onclick=()=>{A.qs.push(jenis=='refleksi'?{t:'skala',q:''}:{t:'pg',q:'',opts:['','','',''],ans:0,k:(KL[0]||{}).id||''});show()};
+ document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{A.qs.splice(+b.dataset.del,1);show()})}
+/* Penilaian dilakukan di sini (panel guru), memakai kunci yang hanya bisa dibaca guru */
+function nilai(sub,j){const pk={};let tot=0,sum=0,pend=0;
+ S[j].qs.forEach((q,i)=>{const a=sub.ans[i];let v;
+  if(q.t=='pg')v=a!==''&&a!=null&&+a===+q.ans?1:0;
+  else if(q.t=='esai'){const s=(sub.sk||{})[i];if(s==null){pend++;return}v=s/4}
+  else return;
+  tot++;sum+=v;const p=pk[q.k]||(pk[q.k]={s:0,t:0});p.s+=v;p.t++});
+ return{n:tot?Math.round(sum/tot*100):null,pk,pend}}
+function rows(){const m={};subs.forEach(s=>{if(kelas&&s.kelas!=kelas)return;const k=s.kelas+'_'+s.absen,r=m[k]||(m[k]={k,nama:s.nama,kelas:s.kelas,absen:s.absen});r[s.jenis]=s});
+ return Object.values(m).map(r=>{const aw=r.awal?nilai(r.awal,'awal').n:null,x=r.akhir?nilai(r.akhir,'akhir'):null,ak=x&&!x.pend?x.n:null,
+ L=r.refleksi?Object.entries(r.refleksi.ans).filter(([n])=>S.refleksi.qs[n]?.t=='skala').map(([,v])=>+v).filter(Boolean):[],rf=L.length?L.reduce((a,b)=>a+b)/L.length:null,
+ rt=r.refleksi?Object.entries(r.refleksi.ans).filter(([n,v])=>S.refleksi.qs[n]?.t=='isian'&&v).map(([n,v])=>`${+n+1}) ${v}`).join(' | '):'',
+ weak=x?Object.entries(x.pk).filter(([k,p])=>S.kktp.some(t=>t.id==k)&&p.s/p.t*100<S.thr).map(([k])=>k):[],
+ lv=ak==null?null:S.lv.find(l=>ak>=l.min&&ak<=l.max)||null;
+ return{...r,aw,ak,rf,rt,weak,lv,st:ak!=null?(lv?lv.nama:'-'):x&&x.pend?'Menunggu nilai esai':'Belum akhir',flag:[ak!=null&&aw!=null&&ak<aw?'nilai turun':'',rf!=null&&rf<2.5?'refleksi: merasa sulit':''].filter(Boolean)}})}
+function vEsai(){const c=$('#tc');let h='';
+ ['awal','akhir'].forEach(j=>S[j].qs.forEach((q,i)=>{if(q.t!='esai')return;
+  const L=subs.filter(s=>s.jenis==j&&(!kelas||s.kelas==kelas)).sort((a,b)=>a.kelas.localeCompare(b.kelas)||a.absen-b.absen);
+  h+=`<div class=card><b>${j} – Soal ${i+1}: ${esc(q.q)}</b><p class=m>Kunci: ${esc(q.kunci)}<br>Pedoman: ${esc(q.rub)}</p>`+L.map(s=>`<div class=row><span style="flex:4"><b>${esc(s.kelas)}/${s.absen}</b> ${esc(s.ans[i])||'<i>(kosong)</i>'}</span><select style="flex:0 0 5em" data-sj="${s.id}" data-qi=${i}><option value="">—${[1,2,3,4].map(n=>`<option ${s.sk&&s.sk[i]==n?'selected':''}>${n}`).join('')}</select></div>`).join('')+`</div>`}));
+ c.innerHTML=h||'<div class=card>Belum ada soal esai.</div>';
+ c.querySelectorAll('[data-sj]').forEach(s=>s.onchange=async()=>{const u=subs.find(x=>x.id==s.dataset.sj),i=s.dataset.qi,v=s.value;if(!v)return;
+  try{await db.collection('sessions').doc(code).collection('subs').doc(u.id).update({['sk.'+i]:+v});u.sk=u.sk||{};u.sk[i]=+v;s.style.outline='2px solid #16a34a'}catch(e){alert(e.message)}})}
+function vHasil(){const R=rows();
+ $('#tc').innerHTML=`<div class=grid><div class=card><h4>Distribusi nilai (jumlah siswa)</h4><canvas id=c1></canvas></div><div class=card><h4>Asesmen awal per cakupan (%)</h4><canvas id=c2></canvas></div><div class=card><h4>Ketercapaian akhir per TP (%)</h4><canvas id=c5></canvas></div><div class=card><h4>Kategori nilai akhir</h4><canvas id=c3></canvas></div><div class=card><h4>Refleksi (rata-rata skala 1-4)</h4><canvas id=c4></canvas></div></div>`;
+ const b1=[0,0,0,0,0],b2=[0,0,0,0,0],bi=v=>Math.min(4,v/20|0);R.forEach(r=>{if(r.aw!=null)b1[bi(r.aw)]++;if(r.ak!=null)b2[bi(r.ak)]++});
+ new Chart($('#c1'),{type:'bar',data:{labels:['0-19','20-39','40-59','60-79','80-100'],datasets:[{label:'Awal',data:b1,backgroundColor:'#94a3b8'},{label:'Akhir',data:b2,backgroundColor:'#2563eb'}]},options:{scales:{y:{ticks:{precision:0}}}}});
+ const pa=(j,L)=>L.map(k=>{let s=0,t=0;subs.forEach(u=>{if(u.jenis!=j||(kelas&&u.kelas!=kelas))return;const p=nilai(u,j).pk[k.id];if(p){s+=p.s;t+=p.t}});return t?Math.round(s/t*100):0});
+ new Chart($('#c2'),{type:'bar',data:{labels:S.cak.map(k=>k.id),datasets:[{label:'Awal',data:pa('awal',S.cak),backgroundColor:'#94a3b8'}]},options:{scales:{y:{max:100,min:0}}}});
+ new Chart($('#c5'),{type:'bar',data:{labels:S.kktp.map(k=>k.id),datasets:[{label:'Akhir',data:pa('akhir',S.kktp),backgroundColor:'#2563eb'}]},options:{scales:{y:{max:100,min:0}}}});
+ new Chart($('#c3'),{type:'doughnut',data:{labels:[...S.lv.map(l=>l.nama),'Belum/menunggu esai'],datasets:[{data:[...S.lv.map(l=>R.filter(r=>r.lv===l).length),R.filter(r=>r.ak==null).length],backgroundColor:['#dc2626','#f59e0b','#2563eb','#16a34a','#cbd5e1']}]}});
+ const rq=S.refleksi.qs.map((q,i)=>({q,i})).filter(x=>x.q.t=='skala'),av=i=>{const v=subs.filter(s=>s.jenis=='refleksi'&&(!kelas||s.kelas==kelas)).map(s=>+s.ans[i]).filter(Boolean);return v.length?+(v.reduce((a,b)=>a+b)/v.length).toFixed(2):0};
+ new Chart($('#c4'),{type:'bar',data:{labels:rq.map(x=>'R'+(x.i+1)),datasets:[{label:'Rata-rata',data:rq.map(x=>av(x.i)),backgroundColor:'#8b5cf6'}]},options:{indexAxis:'y',scales:{x:{max:4,min:0}}}})}
+function vKel(){const c=$('#tc');
+ if(!kelas){c.innerHTML='<div class=card>Pilih kelas terlebih dahulu.</div>';return}
+ const R=rows().filter(r=>r.aw!=null).sort((a,b)=>b.aw-a.aw),n=Math.max(1,Math.ceil(R.length/S.gs)),G=Array.from({length:n},()=>[]);
+ R.forEach((r,i)=>{const q=i/n|0,p=i%n,g=S.mv[r.k]??(q%2?n-1-p:p);G[Math.min(g,n-1)].push(r)});
+ c.innerHTML=`<p class=m>Pembagian heterogen otomatis dari Asesmen Awal. Pindahkan anggota bila perlu, lalu simpan.</p><div class=grid>`+G.map((m,g)=>`<div class=card><h4>Kelompok ${g+1}</h4>`+m.map(r=>`<div class=row><span style="flex:3">${esc(r.nama)} (${r.aw})</span><select style="flex:1" data-mv="${r.k}">${G.map((_,x)=>`<option value=${x} ${x==g?'selected':''}>K${x+1}`).join('')}</select></div>`).join('')+`</div>`).join('')+`</div><button id=sv>Simpan</button>`;
+ c.querySelectorAll('[data-mv]').forEach(s=>s.onchange=()=>{S.mv[s.dataset.mv]=+s.value;vKel()})}
+function vSis(){const R=rows().sort((a,b)=>a.kelas.localeCompare(b.kelas)||a.absen-b.absen),note=r=>[...r.flag,r.weak.length?'TP belum tercapai: '+r.weak.join(', '):''].filter(Boolean).join('; ');
+ $('#tc').innerHTML=`<div class=card style="overflow:auto"><table><tr><th>Absen<th>Nama<th>Kelas<th>Awal<th>Akhir<th>Kategori<th>Catatan<th>Refleksi</tr>`+R.map(r=>`<tr><td>${r.absen}<td>${esc(r.nama)}<td>${esc(r.kelas)}<td>${r.aw??'-'}<td>${r.ak??'-'}<td>${esc(r.st)}<td>${esc(note(r))}<td>${r.rt?`<details><summary>lihat</summary>${esc(r.rt)}</details>`:'-'}`).join('')+`</table><button id=ex>Unduh CSV</button></div><h3>Program Tindak Lanjut menurut Kategori Nilai</h3>`+S.lv.map(l=>{const m=R.filter(r=>r.lv===l);return`<div class=card><b>${esc(l.nama)} (${l.min}–${l.max}) · ${m.length} siswa</b><p>${esc(m.map(r=>r.nama).join(', ')||'-')}</p><i>${esc(l.tl)}</i></div>`}).join('')+`<h3>Menurut TP</h3>`+S.kktp.map(k=>{const dp=R.filter(r=>r.weak.includes(k.id)).map(r=>r.nama),pg=R.filter(r=>r.ak!=null&&!r.weak.includes(k.id)).map(r=>r.nama);return`<div class=card><b>${esc(k.id)}</b> ${esc(k.name)}<p><b>Belum tercapai (${dp.length}):</b> ${esc(dp.join(', ')||'-')}<br><i>${esc(k.fu)}</i></p><p><b>Tercapai (${pg.length}):</b> ${esc(pg.join(', ')||'-')}<br><i>${esc(k.fe)}</i></p></div>`}).join('');
+ $('#ex').onclick=()=>{const q=x=>'"'+String(x).replace(/"/g,'""')+'"',csv='Absen,Nama,Kelas,Awal,Akhir,Kategori,Catatan\n'+R.map(r=>[r.absen,q(r.nama),r.kelas,r.aw??'',r.ak??'',q(r.st),q(note(r))].join(',')).join('\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'}));a.download='hasil-'+code+'.csv';a.click()}}
+route();
+</script></body></html>
