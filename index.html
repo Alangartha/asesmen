@@ -1,0 +1,115 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Asesmen Kelas</title>
+<style>
+:root{--bg:#f4f6fb;--c:#fff;--t:#1f2937;--m:#6b7280;--p:#2563eb;--b:#e5e7eb}
+@media(prefers-color-scheme:dark){:root{--bg:#111827;--c:#1f2937;--t:#f3f4f6;--m:#9ca3af;--p:#60a5fa;--b:#374151}}
+*{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;background:var(--bg);color:var(--t)}#app{max-width:980px;margin:auto;padding:12px}
+.card{background:var(--c);border:1px solid var(--b);border-radius:12px;padding:14px;margin:10px 0}
+label{display:block;font-size:.85rem;color:var(--m);margin:6px 0;flex:1}input,select,textarea{width:100%;padding:9px;border:1px solid var(--b);border-radius:8px;background:var(--bg);color:var(--t);font:inherit}
+textarea{min-height:60px}button{background:var(--p);color:#fff;border:0;border-radius:8px;padding:9px 14px;font:inherit;cursor:pointer;margin:4px 2px}button.g{background:transparent;color:var(--p);border:1px solid var(--p)}
+.row{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.bar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5}
+.op{display:flex;gap:8px;align-items:center;color:var(--t);font-size:1rem;padding:8px;border:1px solid var(--b);border-radius:8px;margin:5px 0}.op input,.rd{width:auto;flex:0 0 auto}
+.err{color:#dc2626}.m{color:var(--m)}table{border-collapse:collapse;width:100%;font-size:.85rem}td,th{border-bottom:1px solid var(--b);padding:6px;text-align:left}.tabs{display:flex;flex-wrap:wrap}
+</style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head><body><div id="app"></div>
+<script>
+// === ISI DENGAN KONFIGURASI FIREBASE ANDA (lihat PANDUAN.md) ===
+const CFG = {
+  apiKey: "AIzaSyChiuboGtYCAXr_8dUlLbuCpQ_kDlDhXm4",
+  authDomain: "asesmen-kelas.firebaseapp.com",
+  projectId: "asesmen-kelas",
+  storageBucket: "asesmen-kelas.firebasestorage.app",
+  messagingSenderId: "636841764746",
+  appId: "1:636841764746:web:a89b55332a377d1c288a73"};
+firebase.initializeApp(CFG);const db=firebase.firestore(),au=firebase.auth();
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const shuf=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
+const blank=()=>({awal:{min:30,qs:[]},akhir:{min:30,qs:[]},refleksi:{min:15,qs:[]},kktp:[],thr:75,gs:5,mv:{}});
+const route=()=>location.hash==='#guru'?(au.currentUser?panel():login()):home();
+au.onAuthStateChanged(route);window.onhashchange=route;
+
+/* ---------- SISWA ---------- */
+function home(){app.innerHTML=`<div class=card><h1>Asesmen Kelas</h1><label>Kode sesi<input id=kode></label><label>Nama lengkap<input id=nama></label><div class=row><label>Kelas<input id=kelas placeholder="7A"></label><label>No. absen<input id=absen type=number min=1></label></div><label>Pilih asesmen<select id=jenis><option value=awal>Asesmen Awal<option value=akhir>Asesmen Akhir<option value=refleksi>Refleksi</select></label><button id=go>Mulai</button><p id=msg class=err></p></div><p class=m><a href="#guru">Masuk sebagai guru</a></p>`;$('#go').onclick=start}
+async function start(){
+ const v=i=>$('#'+i).value.trim(),m=$('#msg');
+ const code=v('kode').toUpperCase(),nama=v('nama'),kelas=v('kelas').toUpperCase().replace(/\s/g,''),absen=+v('absen'),jenis=v('jenis');
+ if(!code||!nama||!kelas||!absen){m.textContent='Lengkapi semua isian.';return}
+ try{const ref=db.collection('sessions').doc(code),s=await ref.get();
+  if(!s.exists){m.textContent='Kode sesi tidak ditemukan.';return}
+  const d=s.data(),A=d[jenis];
+  if(!A||!A.qs||!A.qs.length){m.textContent='Soal belum tersedia.';return}
+  const id=`${jenis}_${kelas}_${absen}`;
+  if((await ref.collection('subs').doc(id).get()).exists){m.textContent='Kamu sudah mengerjakan bagian ini.';return}
+  quiz(ref,id,{nama,kelas,absen,jenis},A)}catch(e){m.textContent='Gagal: '+e.message}}
+function quiz(ref,id,who,A){
+ const qs=shuf(A.qs.map((q,n)=>({...q,n,o:q.t==='pg'?shuf(q.opts.map((o,i)=>({o,i}))):null})));
+ const end=Date.now()+A.min*6e4;let done=false;
+ app.innerHTML=`<div class=bar><b>${esc(who.nama)}</b><b id=tm></b></div>`+qs.map((q,k)=>`<div class=card><p>${k+1}. ${esc(q.q)}</p>`+(q.t==='pg'?q.o.map(x=>`<label class=op><input type=radio name=q${q.n} value=${x.i}> ${esc(x.o)}</label>`).join(''):q.t==='skala'?`<div class=row>${[1,2,3,4].map(i=>`<label class=op><input type=radio name=q${q.n} value=${i}> ${i}</label>`).join('')}</div><small class=m>1 = sangat tidak setuju · 4 = sangat setuju</small>`:`<textarea name=q${q.n}></textarea>`)+`</div>`).join('')+`<button id=kirim>Kirim Jawaban</button>`;
+ const send=async()=>{if(done)return;done=true;clearInterval(t);
+  const ans={},pk={};let b=0;
+  A.qs.forEach((q,n)=>{const el=document.querySelector(`[name=q${n}]:checked`)||document.querySelector(`textarea[name=q${n}]`),val=el?el.value:'';ans[n]=val;
+   if(q.t==='pg'){const k=q.k||'-',p=pk[k]||(pk[k]={b:0,t:0});p.t++;if(val!==''&&+val===+q.ans){p.b++;b++}}});
+  const np=A.qs.filter(q=>q.t==='pg').length;
+  try{await ref.collection('subs').doc(id).set({...who,ans,pk,score:np?Math.round(b/np*100):null,ts:Date.now()});app.innerHTML='<div class=card><h2>Terima kasih!</h2><p>Jawabanmu sudah terkirim.</p></div>'}
+  catch(e){app.innerHTML='<div class=card><p class=err>Gagal mengirim (mungkin sudah pernah dikirim): '+esc(e.message)+'</p></div>'}};
+ const t=setInterval(()=>{const s=Math.max(0,Math.round((end-Date.now())/1e3));$('#tm').textContent=`${s/60|0}:${String(s%60).padStart(2,'0')}`;if(!s)send()},500);
+ $('#kirim').onclick=()=>confirm('Kirim jawaban sekarang?')&&send()}
+
+/* ---------- GURU ---------- */
+let S,code,subs=[],tab='set',jenis='awal',kelas='';
+function login(){app.innerHTML=`<div class=card><h1>Login Guru</h1><label>Email<input id=em type=email></label><label>Kata sandi<input id=pw type=password></label><button id=lg>Masuk</button><p id=msg class=err></p><a href="#">← Halaman siswa</a></div>`;
+ $('#lg').onclick=()=>au.signInWithEmailAndPassword($('#em').value,$('#pw').value).catch(()=>$('#msg').textContent='Email atau kata sandi salah.')}
+function panel(){app.innerHTML=`<div class=bar><b>Panel Guru</b><span><input id=kd placeholder="Kode sesi" value="${esc(code||'')}" style="width:9em"><button id=bk>Buka / Buat</button><button class=g id=rf>⟳</button><button class=g id=lo>Keluar</button></span></div><div id=body></div>`;
+ $('#bk').onclick=()=>load($('#kd').value.trim().toUpperCase());$('#rf').onclick=()=>code&&load(code);$('#lo').onclick=()=>au.signOut();
+ code?show():$('#body').innerHTML='<div class=card>Masukkan kode sesi (mis. ASM-7A), lalu klik Buka / Buat.</div>'}
+async function load(c){if(!c)return;code=c;const r=db.collection('sessions').doc(c),s=await r.get();S={...blank(),...(s.exists?s.data():{})};subs=(await r.collection('subs').get()).docs.map(d=>({id:d.id,...d.data()}));show()}
+document.addEventListener('input',e=>{const p=e.target.dataset.p;if(!p)return;const k=p.split('.');let o=S;k.slice(0,-1).forEach(x=>o=o[x]);o[k[k.length-1]]=e.target.dataset.n?+e.target.value:e.target.value});
+function show(){
+ const T={set:'Pengaturan & KKTP',soal:'Soal',hasil:'Diagram',kel:'Kelompok',sis:'Siswa & Tindak Lanjut'},cl=[...new Set(subs.map(s=>s.kelas))].sort();
+ $('#body').innerHTML=`<div class=tabs>${Object.entries(T).map(([k,v])=>`<button class="${k==tab?'':'g'}" data-t=${k}>${v}</button>`).join('')}</div>${tab=='set'||tab=='soal'?'':`<select id=kl style="max-width:200px"><option value="">Semua kelas${cl.map(x=>`<option ${x==kelas?'selected':''}>${x}`).join('')}</select>`}<div id=tc></div>`;
+ document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tab=b.dataset.t;show()});
+ if($('#kl'))$('#kl').onchange=e=>{kelas=e.target.value;show()};
+ ({set:vSet,soal:vSoal,hasil:vHasil,kel:vKel,sis:vSis})[tab]();
+ const sv=$('#sv');if(sv)sv.onclick=()=>db.collection('sessions').doc(code).set(S).then(()=>alert('Tersimpan.')).catch(e=>alert(e.message))}
+function vSet(){
+ $('#tc').innerHTML=`<div class=card><h3>Pengaturan</h3><div class=row><label>Batas ketuntasan (%)<input type=number data-n=1 data-p=thr value=${S.thr}></label><label>Anggota per kelompok<input type=number data-n=1 data-p=gs value=${S.gs}></label></div><div class=row>${['awal','akhir','refleksi'].map(j=>`<label>Waktu ${j} (menit)<input type=number data-n=1 data-p=${j}.min value=${S[j].min}></label>`).join('')}</div></div>
+ <div class=card><h3>KKTP & Program Tindak Lanjut</h3>${S.kktp.map((k,i)=>`<div class=card><div class=row><label style="flex:0 0 6em">Kode<input data-p=kktp.${i}.id value="${esc(k.id)}"></label><label style="flex:4">KKTP<input data-p=kktp.${i}.name value="${esc(k.name)}"></label></div><label>Program pendampingan<textarea data-p=kktp.${i}.fu>${esc(k.fu)}</textarea></label><label>Program pengayaan<textarea data-p=kktp.${i}.fe>${esc(k.fe)}</textarea></label><button class=g data-del=${i}>Hapus KKTP</button></div>`).join('')}<button class=g id=ak>+ Tambah KKTP</button></div><button id=sv>Simpan</button>`;
+ $('#ak').onclick=()=>{S.kktp.push({id:'K'+(S.kktp.length+1),name:'',fu:'',fe:''});show()};
+ document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{S.kktp.splice(+b.dataset.del,1);show()})}
+function vSoal(){const A=S[jenis],P=i=>`${jenis}.qs.${i}`;
+ $('#tc').innerHTML=`<div class=tabs>${['awal','akhir','refleksi'].map(j=>`<button class="${j==jenis?'':'g'}" data-j=${j}>${j}</button>`).join('')}</div>`+A.qs.map((q,i)=>`<div class=card><div class=row><label style="flex:4">Soal ${i+1}<textarea data-p=${P(i)}.q>${esc(q.q)}</textarea></label>${jenis=='refleksi'?`<label>Jenis<select data-p=${P(i)}.t><option value=skala ${q.t=='skala'?'selected':''}>Skala 1-4<option value=isian ${q.t=='isian'?'selected':''}>Isian</select></label>`:`<label>KKTP<select data-p=${P(i)}.k>${S.kktp.map(k=>`<option ${k.id==q.k?'selected':''}>${esc(k.id)}`).join('')}</select></label>`}</div>`+(q.t=='pg'?[0,1,2,3].map(o=>`<div class=row><input class=rd type=radio name=r${jenis}${i} data-n=1 data-p=${P(i)}.ans value=${o} ${q.ans==o?'checked':''}><input style="flex:1" data-p=${P(i)}.opts.${o} value="${esc(q.opts[o])}" placeholder="Opsi ${'ABCD'[o]}"></div>`).join('')+'<small class=m>Pilih bulatan pada opsi yang benar.</small><br>':'')+`<button class=g data-del=${i}>Hapus soal</button></div>`).join('')+`<button class=g id=aq>+ Tambah soal</button><button id=sv>Simpan</button>`;
+ document.querySelectorAll('[data-j]').forEach(b=>b.onclick=()=>{jenis=b.dataset.j;vSoal()});
+ $('#aq').onclick=()=>{A.qs.push(jenis=='refleksi'?{t:'skala',q:''}:{t:'pg',q:'',opts:['','','',''],ans:0,k:(S.kktp[0]||{}).id||'-'});show()};
+ document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{A.qs.splice(+b.dataset.del,1);show()});
+ const sv=$('#sv');sv.onclick=()=>db.collection('sessions').doc(code).set(S).then(()=>alert('Tersimpan.')).catch(e=>alert(e.message))}
+function rows(){const m={};subs.forEach(s=>{if(kelas&&s.kelas!=kelas)return;const k=s.kelas+'_'+s.absen,r=m[k]||(m[k]={k,nama:s.nama,kelas:s.kelas,absen:s.absen});r[s.jenis]=s});
+ return Object.values(m).map(r=>{const aw=r.awal?.score,ak=r.akhir?.score,L=r.refleksi?Object.entries(r.refleksi.ans).filter(([n])=>S.refleksi.qs[n]?.t=='skala').map(([,v])=>+v).filter(Boolean):[],rf=L.length?L.reduce((a,b)=>a+b)/L.length:null,
+ weak=Object.entries(r.akhir?.pk||{}).filter(([,p])=>p.b/p.t*100<S.thr).map(([k])=>k);
+ return{...r,aw,ak,rf,weak,st:ak==null?'Belum akhir':ak>=S.thr?'Pengayaan':'Pendampingan',flag:[ak!=null&&aw!=null&&ak<aw?'nilai turun':'',rf!=null&&rf<2.5?'refleksi: merasa sulit':''].filter(Boolean)}})}
+function vHasil(){const R=rows();
+ $('#tc').innerHTML=`<div class=grid><div class=card><h4>Distribusi nilai (jumlah siswa)</h4><canvas id=c1></canvas></div><div class=card><h4>Ketercapaian per KKTP (%)</h4><canvas id=c2></canvas></div><div class=card><h4>Pendampingan vs pengayaan</h4><canvas id=c3></canvas></div><div class=card><h4>Refleksi (rata-rata skala 1-4)</h4><canvas id=c4></canvas></div></div>`;
+ const b1=[0,0,0,0,0],b2=[0,0,0,0,0],bi=v=>Math.min(4,v/20|0);R.forEach(r=>{if(r.aw!=null)b1[bi(r.aw)]++;if(r.ak!=null)b2[bi(r.ak)]++});
+ const ds=(a,b)=>[{label:'Awal',data:a,backgroundColor:'#94a3b8'},{label:'Akhir',data:b,backgroundColor:'#2563eb'}];
+ new Chart($('#c1'),{type:'bar',data:{labels:['0-19','20-39','40-59','60-79','80-100'],datasets:ds(b1,b2)},options:{scales:{y:{ticks:{precision:0}}}}});
+ const pa=j=>S.kktp.map(k=>{let b=0,t=0;subs.forEach(s=>{if(s.jenis!=j||(kelas&&s.kelas!=kelas))return;const p=(s.pk||{})[k.id];if(p){b+=p.b;t+=p.t}});return t?Math.round(b/t*100):0});
+ new Chart($('#c2'),{type:'bar',data:{labels:S.kktp.map(k=>k.id),datasets:ds(pa('awal'),pa('akhir'))},options:{scales:{y:{max:100,min:0}}}});
+ const n=s=>R.filter(r=>r.st==s).length;
+ new Chart($('#c3'),{type:'doughnut',data:{labels:['Pengayaan','Pendampingan','Belum asesmen akhir'],datasets:[{data:[n('Pengayaan'),n('Pendampingan'),n('Belum akhir')],backgroundColor:['#16a34a','#f59e0b','#cbd5e1']}]}});
+ const rq=S.refleksi.qs.map((q,i)=>({q,i})).filter(x=>x.q.t=='skala'),av=i=>{const v=subs.filter(s=>s.jenis=='refleksi'&&(!kelas||s.kelas==kelas)).map(s=>+s.ans[i]).filter(Boolean);return v.length?+(v.reduce((a,b)=>a+b)/v.length).toFixed(2):0};
+ new Chart($('#c4'),{type:'bar',data:{labels:rq.map(x=>'R'+(x.i+1)),datasets:[{label:'Rata-rata',data:rq.map(x=>av(x.i)),backgroundColor:'#8b5cf6'}]},options:{indexAxis:'y',scales:{x:{max:4,min:0}}}})}
+function vKel(){const c=$('#tc');
+ if(!kelas){c.innerHTML='<div class=card>Pilih kelas terlebih dahulu.</div>';return}
+ const R=rows().filter(r=>r.aw!=null).sort((a,b)=>b.aw-a.aw),n=Math.max(1,Math.ceil(R.length/S.gs)),G=Array.from({length:n},()=>[]);
+ R.forEach((r,i)=>{const q=i/n|0,p=i%n,g=S.mv[r.k]??(q%2?n-1-p:p);G[Math.min(g,n-1)].push(r)});
+ c.innerHTML=`<p class=m>Pembagian heterogen otomatis dari Asesmen Awal. Pindahkan anggota bila perlu, lalu simpan.</p><div class=grid>`+G.map((m,g)=>`<div class=card><h4>Kelompok ${g+1}</h4>`+m.map(r=>`<div class=row><span style="flex:3">${esc(r.nama)} (${r.aw})</span><select style="flex:1" data-mv="${r.k}">${G.map((_,x)=>`<option value=${x} ${x==g?'selected':''}>K${x+1}`).join('')}</select></div>`).join('')+`</div>`).join('')+`</div><button id=sv>Simpan</button>`;
+ c.querySelectorAll('[data-mv]').forEach(s=>s.onchange=()=>{S.mv[s.dataset.mv]=+s.value;vKel()})}
+function vSis(){const R=rows().sort((a,b)=>a.kelas.localeCompare(b.kelas)||a.absen-b.absen),note=r=>[...r.flag,r.weak.length?'KKTP lemah: '+r.weak.join(', '):''].filter(Boolean).join('; ');
+ $('#tc').innerHTML=`<div class=card style="overflow:auto"><table><tr><th>Absen<th>Nama<th>Kelas<th>Awal<th>Akhir<th>Refleksi<th>Status<th>Catatan</tr>`+R.map(r=>`<tr><td>${r.absen}<td>${esc(r.nama)}<td>${r.kelas}<td>${r.aw??'-'}<td>${r.ak??'-'}<td>${r.rf?.toFixed(1)??'-'}<td>${r.st}<td>${esc(note(r))}`).join('')+`</table><button id=ex>Unduh CSV</button></div><h3>Program Tindak Lanjut per KKTP</h3>`+S.kktp.map(k=>{const dp=R.filter(r=>r.weak.includes(k.id)).map(r=>r.nama),pg=R.filter(r=>r.ak!=null&&!r.weak.includes(k.id)).map(r=>r.nama);return`<div class=card><b>${esc(k.id)} – ${esc(k.name)}</b><p><b>Pendampingan (${dp.length}):</b> ${esc(dp.join(', ')||'-')}<br><i>${esc(k.fu)}</i></p><p><b>Pengayaan (${pg.length}):</b> ${esc(pg.join(', ')||'-')}<br><i>${esc(k.fe)}</i></p></div>`}).join('');
+ $('#ex').onclick=()=>{const q=x=>'"'+String(x).replace(/"/g,'""')+'"',csv='Absen,Nama,Kelas,Awal,Akhir,Refleksi,Status,Catatan\n'+R.map(r=>[r.absen,q(r.nama),r.kelas,r.aw??'',r.ak??'',r.rf?.toFixed(1)??'',r.st,q(note(r))].join(',')).join('\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'}));a.download='hasil-'+code+'.csv';a.click()}}
+route();
+</script></body></html>
